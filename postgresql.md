@@ -3,6 +3,12 @@ PostgreSQL is classified as an Object-Relational Database Management System (ORD
 
 PostgreSQL operates on a client-server architecture. This means that a separate client application interacts with a central server process to manage and access data.
 
+## Read and writes are not really equal
+The challenge here in looking at Postgres like this is that reads and writes are not really equal.
+
+Postgres reads data in whole 8kb units, called blocks on disk or pages once they’re part of the shared memory. The cost of reading is much lower than writing. Since the most frequently used data generally resides in the shared buffers or the OS cache, many queries never need additional physical IO and can return results just from memory.
+Postgres writes by comparison are a little more complicated. When changing an individual tuple, Postgres needs to write data to WAL defining what happens. If this is the first write after a checkpoint, this could include a copy of the full data page. This also can involve writing additional data for any index changes, toast table changes, or toast table indexes. This is the direct write cost of a single database change, which is done before the commit is accepted. There is also the IO cost for writing out all dirty page buffers, but this is generally done in the background by the background writer. In addition to these write IO costs, the data pages need to be in memory in order to make changes, so every write operation also has potential read overhead as well.
+
 ## Benefits of PostgreSQL
 
 - Open source and free to use

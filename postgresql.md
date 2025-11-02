@@ -7,6 +7,7 @@ PostgreSQL operates on a client-server architecture. This means that a separate 
 The challenge here in looking at Postgres like this is that reads and writes are not really equal.
 
 Postgres reads data in whole 8kb units, called blocks on disk or pages once they’re part of the shared memory. The cost of reading is much lower than writing. Since the most frequently used data generally resides in the shared buffers or the OS cache, many queries never need additional physical IO and can return results just from memory.
+
 Postgres writes by comparison are a little more complicated. When changing an individual tuple, Postgres needs to write data to WAL defining what happens. If this is the first write after a checkpoint, this could include a copy of the full data page. This also can involve writing additional data for any index changes, toast table changes, or toast table indexes. This is the direct write cost of a single database change, which is done before the commit is accepted. There is also the IO cost for writing out all dirty page buffers, but this is generally done in the background by the background writer. In addition to these write IO costs, the data pages need to be in memory in order to make changes, so every write operation also has potential read overhead as well.
 
 ## Benefits of PostgreSQL
@@ -41,6 +42,25 @@ It uses a sophisticated system called Multiversion Concurrency Control (MVCC) to
 - Caching -- pogocache, readysettech/readyset
 - Performance -- pgassistant: PostgreSQL assistant for developers designed to help understand and optimize PostgreSQL database performance
 - Queue --  pgmq
+
+## Performance Tuning for High Write Traffic in Postgres
+For write-heavy systems, the bottleneck is often I/O and transaction throughput. You're constantly writing to the disk, which is slower than reading from memory.
+
+- Faster Storage: The most direct way to improve write performance is to use faster storage, such as NVMe SSDs, and provision more I/O operations per second (IOPS).
+- More RAM: While reads benefit from RAM for caching too, writes also benefit from a larger shared_buffers pool, which can hold more dirty pages before they need to be flushed to disk.
+- I/O burst systems: Many cloud based systems come with extra I/O out of the box, so looking at these numbers may also be helpful.
+- Minimize Indexes: While essential for reads, every index needs to be updated during a write operation. Over-indexing can significantly slow down writes so remove unused indexes.
+- Utilizing HOT updates: Postgres has a performance improvement for frequently updated rows that are indexed, so adjusting fill factor to take advantage of this could be worth looking into.
+- Tune the WAL (Write-Ahead Log): The WAL is where every change is written before it's committed to the main database files. Tuning parameters like wal_buffers can reduce the number of disk flushes and improve write performance.
+- Optimize Checkpoints: Checkpoints sync the data from shared memory to disk. Frequent or large checkpoints can cause I/O spikes. Adjusting checkpoint_timeout and checkpoint_completion_target can smooth out these events.
+
+## Performance tuning for read traffic
+For read-heavy systems, the primary goal is to get data to the user as quickly as possible and ideally have much data in the buffer cache so it is not reading from disk.
+
+- Effective Caching: Ensure your shared_buffers and effective_cache_size are configured to take advantage of available RAM. This lets Postgres keep frequently accessed data in memory, avoiding costly disk reads.
+- Optimize Queries and Indexes: Use EXPLAIN ANALYZE to pinpoint slow SELECT queries and add indexes on columns used in WHERE clauses, JOIN conditions, and ORDER BY statements. Remember, indexes speed up lookups at the cost of slower writes.
+- Scaling out with read replicas: A read replica is a copy of your primary database that's kept in sync asynchronously. All write operations go to the primary, but you can distribute read queries across one or more replicas. This distributes the read load, offloads traffic from your primary server, and can dramatically improve read throughput without impacting your write performance.
+- Postgres 18 now has asynchronous I/O which should mean better read performance than traditional methods. Upgrade soon if you can.
 
 ## Should You Use Postgres?
 Most of the time - yes. You should always default to Postgres until the constraints prove you wrong.
